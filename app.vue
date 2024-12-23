@@ -15,5 +15,77 @@
 </template>
 
 <script setup lang="ts">
+import { createSSRApp } from "vue";
+import { renderToString } from "@vue/server-renderer";
+import { useLocalStorage, watchDebounced } from "@vueuse/core";
+import satori from "satori";
+import { html } from "satori-html";
+import ChristmasCard from "./components/ChristmasCard.vue";
 
+const form = useLocalStorage("app-form", {
+  name: "",
+  greeting: "Feliz Natal",
+  photo: null,
+});
+const svg = ref("");
+const fonts = ref([]);
+
+onMounted(async () => {
+  fonts.value = await loadFonts([{ name: "LeagueSpartan", url: "/fonts/LeagueSpartan-Regular.ttf" }]);
+  refreshGraphics();
+})
+
+watchDebounced(form, refreshGraphics, { deep: true, debounce: 500, maxWait: 1000 });
+
+async function loadFonts(fonts) {
+  return Promise.all(
+    fonts.map(async (font) => ({
+      ...font,
+      data: await(await fetch(font.url)).arrayBuffer(),
+    }))
+  );
+}
+
+async function refreshGraphics() {
+  const content = await renderToHTML(ChristmasCard, form.value);
+  const markup = html(content);
+  svg.value = await satori(markup, { width: 1080, height: 1080, fonts: fonts.value });
+}
+
+async function handleFileChange(event: Event) {
+  const file = (event.target as HTMLInputElement)?.files?.[0];
+  if (file && file.size > 100 * 1024) throw new Error("File size must be below 100kb");
+  const reader = new FileReader();
+  reader.onload = () => (form.value.photo = reader.result as string);
+  reader.readAsDataURL(file);
+}
+
+async function renderToHTML(Component, props = {}) {
+  return await renderToString(createSSRApp(Component, props));
+}
+
+function downloadSvgAsJpeg(svgString, filename = "image.jpeg") {
+  const blob = new Blob([svgString], { type: "image/svg+xml" });
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+
+  img.onload = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1080;
+    canvas.getContext("2d")?.drawImage(img, 0, 0, 1080, 1080);
+    const link = document.createElement("a");
+    link.href = canvas.toDataURL("image/jpeg");
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  img.src = url;
+}
 </script>
+
+<style>
+.banner-here svg {
+  width: 100%;
+  height: 100%;
+}
+</style>
